@@ -1,0 +1,79 @@
+test_editors:
+  - version: 2018.4
+    # 2018.4 doesn't support code-coverage
+    coverageOptions:
+    minCoveragePct: 0
+    # We want some scene tests to run in the DevProject, but packages there only support 2019+
+    testProject: Project
+  - version: 2019.3
+    coverageOptions: --enable-code-coverage --code-coverage-options 'generateHtmlReport;assemblyFilters:+Unity.ML-Agents'
+    minCoveragePct: 72
+    testProject: DevProject
+  - version: 2020.1
+    coverageOptions: --enable-code-coverage --code-coverage-options 'generateHtmlReport;assemblyFilters:+Unity.ML-Agents'
+    minCoveragePct: 72
+    testProject: DevProject
+  - version: 2020.3
+    coverageOptions: --enable-code-coverage --code-coverage-options 'generateHtmlReport;assemblyFilters:+Unity.ML-Agents'
+    minCoveragePct: 72
+    testProject: DevProject
+test_platforms:
+  - name: win
+    type: Unity::VM
+    image: package-ci/win10:stable
+    flavor: b1.large
+  - name: mac
+    type: Unity::VM::osx
+    image: package-ci/mac:stable
+    flavor: b1.small
+  - name: linux
+    type: Unity::VM
+    image: package-ci/ubuntu:stable
+    flavor: b1.medium
+---
+
+all_package_tests:
+  name: Run All Combinations of Editors/Platforms Tests
+  dependencies:
+  {% for editor in test_editors %}
+    {% for platform in test_platforms %}
+  - .yamato/com.unity.ml-agents-test.yml#test_{{ platform.name }}_{{ editor.version }}
+    {% endfor %}
+  {% endfor %}
+
+  triggers:
+    cancel_old_ci: true
+    recurring:
+      - branch: main
+        frequency: daily
+
+{% for editor in test_editors %}
+  {% for platform in test_platforms %}
+test_{{ platform.name }}_{{ editor.version }}:
+  name : com.unity.ml-agents test {{ editor.version }} on {{ platform.name }}
+  agent:
+    type: {{ platform.type }}
+    image: {{ platform.image }}
+    flavor: {{ platform.flavor}}
+  commands:
+    - npm install upm-ci-utils@stable -g --registry https://artifactory.prd.cds.internal.unity3d.com/artifactory/api/npm/upm-npm
+    - upm-ci project test -u {{ editor.version }} --project-path {{ editor.testProject }} {{ editor.coverageOptions }} --extra-utr-arg "reruncount=2"
+    - python3 ml-agents/tests/yamato/check_coverage_percent.py upm-ci~/test-results/ {{ editor.minCoveragePct }}
+  artifacts:
+    logs:
+      paths:
+        - "upm-ci~/test-results/**/*"
+  dependencies:
+    - .yamato/com.unity.ml-agents-pack.yml#pack
+  triggers:
+    cancel_old_ci: true
+    {% if platform.name == "mac" %}
+    changes:
+      only:
+        - "com.unity.ml-agents/**"
+        - "{{ editor.testProject }}/**"
+        - "ml-agents/tests/yamato/**"
+        - ".yamato/com.unity.ml-agents-test.yml"
+    {% endif %}
+  {% endfor %}
+{% endfor %}
